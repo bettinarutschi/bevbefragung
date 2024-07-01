@@ -1,0 +1,204 @@
+---
+title: "Aufgabe_Bevoelkerungsbefragung"
+author: "Bettina Rutschi"
+format: html
+editor: visual
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Aufgabe Bevölkerungsbefragung
+
+### 1. Daten einlesen und vorbereiten bzw. kennen lernen
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(survey)
+library(srvyr)
+library(GGally)
+```
+
+```{r}
+bev_daten <- read_csv("https://data.stadt-zuerich.ch/dataset/prd_stez_bevoelkerungsbefragungen_seit2019_od4732/download/BEV473OD4732.csv")
+
+codeliste <- read_csv("https://data.stadt-zuerich.ch/dataset/prd_stez_bevoelkerungsbefragungen_seit2019_od4732/download/Codeliste_BVB_OGD.csv",
+  locale = locale(encoding = "Latin1"))
+```
+
+```{r}
+# Filtern des Datensatzes für das Jahr 2023
+bev_daten_2023 <- bev_daten %>%
+  filter(Jahr == 2023)
+
+```
+
+```{r}
+str(bev_daten_2023)
+```
+
+```{r}
+# Nach fehlenden Werten überprüfen
+anyNA(bev_daten_2023)
+```
+
+```{r}
+# Variablen Namen in bev_daten
+print(names(bev_daten_2023))
+```
+
+```{r}
+# Liste der Fragen Nr in Codeliste
+unique(codeliste$Frage)
+```
+
+### 2. Auswahl einer Variable aus dem Frageblock F4
+
+```{r}
+# Filtern und Selektieren der relevanten F4 Variablen
+f4_details <- codeliste %>%
+  filter(grepl("^F4_", Frage)) %>%
+  select(Variable, Beschreibung, Titel) %>%
+  distinct()  
+
+print(f4_details)
+```
+
+```{r}
+#Berechnen gewichteter Häufigkeiten für jede Zufriedenheitsvariable
+bev_daten_f4 <- bev_daten_2023 %>%
+  pivot_longer(
+    cols = c("A2004aa01", "A2004ab01", "A2004ac01", "A2004ad01", "A2004ae01", "A2004af01", "A2004ag01", "A2004ah01", "A2004ai01", "A2004ak01", "A2004al01", "A2004am01", "A2004an01", "A2004ao01"),
+    names_to = "Variable",
+    values_to = "Zufriedenheit"
+  ) %>%
+  group_by(Variable, Zufriedenheit) %>%
+  summarise(WeightedCount = sum(pgewicht, na.rm = TRUE), .groups = 'drop')
+
+# Hinzufügen der Titel für bessere Beschriftungen
+bev_daten_f4 <- left_join(bev_daten_f4, f4_details, by = "Variable")
+
+# Visualisierung der gewichteten Daten
+ggplot(bev_daten_f4, aes(x = Zufriedenheit, y = WeightedCount, fill = Zufriedenheit)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ Titel, scales = "free_y", ncol = 2) + 
+  theme_minimal() +
+  labs(title = "Übersicht Zufriedenheit mit Einrichtungen und Angeboten in Zürich",
+       x = "Zufriedenheit",
+       y = "Gewichtete Anzahl Antworten") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text = element_text(size = 10, face = "bold"),
+        strip.placement = "outside",
+        plot.title = element_text(hjust = 0.5)) +  # Zentriert den Plot-Titel
+  guides(fill = guide_legend(title = "Zufriedenheit"))
+```
+
+Als Variable wähle ich die A2004ai01 Zufriedenheit Parkplatzangebot Innenstadt aus. Zusätzlich können auch die beiden Variablen Zufriedenheit Tempo-30-Zonen und Zufriedenheit öffentliche Verkehrsmittel mituntersucht werden.
+
+|           |                                           |
+|:----------|:------------------------------------------|
+| A2004ai01 | Zufriedenheit Parkplatzangebot Innenstadt |
+
+|           |                                          |
+|:----------|:-----------------------------------------|
+| A2004al01 | Zufriedenheit Tempo-30-Zonen             |
+| A2004ah01 | Zufriedenheit öffentliche Verkehrsmittel |
+
+### 3. Auswahl zusätzliche Variablen ausserhalb Frageblock F4
+
+```{r}
+# Definition der Suchbegriffe
+suchbegriffe <- c("Auto", "Parkplatz")
+
+# Filtern der Zeilen, die einen der Suchbegriffe in der Spalte "Titel" enthalten
+codeliste_auto <- codeliste %>%
+  filter(grepl(paste(suchbegriffe, collapse = "|"), Titel, ignore.case = TRUE))
+
+print(codeliste_auto)
+```
+
+Zusätzlich zu den 3 Variablen aus Kap. 2 zur Zufriedenheit mit dem Parkplatzangebot, den Tempo-30-Zonen und dem ÖV enthält der Fragebogen 2023 eine weitere Frage zur Häufigkeit der Autonutzung und zur Zurfriedenheit bei der Autonutzung (falls Autonutzung nicht gleich nie). Diese sollen ebenfalls miteinbezogen werden.
+
+### 4. Korrelationen zwischen den Variablen
+
+In einem ersten Schritt schaue ich die Korrelationen zw. den verschiedenen Variablen an.
+
+```{r}
+# Definieren der Levels für die Variablen
+levels_general <- c("Note 1 (überhaupt nicht zufrieden)", "Note 2", "Note 3", "Note 4", "Note 5", "Note 6 (sehr zufrieden)", "Weiss nicht", "Keine Angabe")
+
+
+# Umwandlung der Variablen
+korrdaten <- bev_daten_2023 %>%
+  mutate(A5007aa01 = as.numeric(factor(A5007aa01, levels = levels_general, ordered = TRUE)),
+         A2004ai01 = as.numeric(factor(A2004ai01, levels = levels_general, ordered = TRUE)),
+         A2004al01 = as.numeric(factor(A2004al01, levels = levels_general, ordered = TRUE)),
+         A2004ah01 = as.numeric(factor(A2004ah01, levels = levels_general, ordered = TRUE)))
+
+# Auswahl der numerischen Variablen
+selected <- korrdaten %>%
+  select(A5007aa01, A2004ai01, A2004al01, A2004ah01)
+
+# Visualisieren der Korrelationsmatrix mit GGally 
+p <- ggpairs(selected, progress = FALSE,
+             lower = list(continuous = wrap("points", position = position_jitter(width = 0.2, height = 0.2), alpha = 0.6)),
+             diag = list(continuous = wrap("barDiag", binwidth = 0.5)))
+
+print(p)
+```
+
+Die höchsten Korrelationen bestehen erwartungsgemäss zw. den Antworten zur Zufriedenheit der Parkplatz-Situation mit den Antworten zur Zufriedenheit mit der Auto-Situation in der Stadt Zürich und den Tempo-30-Zonen. Die Antworten auf die Frage zur Zufriedenheit mit dem ÖV korrelieren nur schwach mit den anderen Variablen. Auf die zusätzliche Integration der Variablen zur Häufigkeitsnutzung des Autos habe ich hier verzichtet aufgrund der unterschiedlichen Antwortkategorien.
+
+### 5. Modell zur Erklärung der Zufriedenheit mit dem Parkplatzangebot Innenstadt
+
+In einem nächsten Schritt soll versucht werden die Zufriedenheit mit dem Parkplatz-Angebot in der Innenstadt zu erklären über die Variablen zur Häufigkeit der Autonutzung und der Zufriedenheit mit der Auto-Nutzung. Da das Parkplatzangebot als knapp gilt, ist die Hypothese, dass Personen, die das Auto häufiger nutzen, unzufriedener sind mit dem Parkplatzangebot. Gleichzeitig wäre aufgrund der Ergebnisse in der Korrelationsmatrix oben zu erwarten, dass Personen, die zufriedener sind mit der Auto-Situation und den Tempo-30-Zonen auch zufriedener sind mit dem Parkplatzangebot in der Innenstadt. Auf die Integration der Zufriedenheit mit ÖV verzichte ich aufgrund der schwachen Korrelation mit den restl. Variablen.
+
+Die Zufriedenheit mit dem Parkplatzangebot wird dabei beschränkt auf die Werte von 1-6, also ohne Weiss nicht- und keine Angaben-Antworten. Zudem stellt sich die Frage, ob die Antworten von Personen, die nie Auto fahren, ebenfalls miteingeschlossen werden sollen. Die Vermutung wäre, dass diese das Parkplatzangebot in der Innenstadt deutlich weniger oft bewerten als Personen, die oft Auto fahren in der Stadt Zürich.
+
+```{r}
+# Filtern der Bewertungen des Parkplatzangebots in der Innenstadt 
+PP_Meinungen <- filter(bev_daten_2023, A2004ai01 != "Weiss nicht" & A2004ai01 != "Keine Angabe") %>% select (c(A2004ai01, A5006aa01,pgewicht))
+
+# Aufschlüsselung der Anzahl der gewichteten Bewertungen des Parkplatzangebots in der Innenstadt nach Häufigkeit der Auto-Nutzung
+PP_Meinungen %>% group_by(A5006aa01) %>%
+  summarise(count = sum(pgewicht, na.rm = TRUE), .groups = 'drop')
+```
+
+```{r}
+# Filtern der Nicht-Autofahrer*innen und unbekannt
+Nicht_Autofahrer <- filter(bev_daten_2023, A5006aa01 == "Nie" | A5006aa01 == "Keine Angabe")
+
+# Aufschlüsselung der Antworten der Nicht-Autofahrer zur Parkplatzangebots-Frage
+Nicht_Autofahrer %>%
+  group_by(A2004ai01) %>%
+  summarise(count = sum(pgewicht, na.rm = TRUE), .groups = 'drop')
+```
+
+Die Aufstellung oben zeigt, dass das Parkplatzangebot in der Innenstadt von Autofahrer\*innen und Nicht-Autofahrer\*innen gleichermassen beurteilt wird. Deswegen wird hier eine Filterfunktion verzichtet.
+
+```{r}
+# Filtern der Bewertungen des Parkplatzangebots in der Innenstadt 
+lm_daten <- bev_daten_2023 %>% filter(A2004ai01 != "Weiss nicht" & A2004ai01 != "Keine Angabe") 
+
+# Definieren der Levels für die verschiedenen Variablen
+levels_A5006aa01 <- rev(c("Täglich", "2-5 Mal pro Woche", "Einmal pro Woche", "Monatlich", "Seltener", "Nie", "Keine Angabe"))
+levels_general <- c("Note 1 (überhaupt nicht zufrieden)", "Note 2", "Note 3", "Note 4", "Note 5", "Note 6 (sehr zufrieden)")
+
+# Umwandlung der Variablen in numerische Werte
+lm_daten <- lm_daten %>%
+  mutate(A5006aa01 = as.numeric(factor(A5006aa01, levels = levels_A5006aa01, ordered = TRUE)),
+         A5007aa01 = as.numeric(factor(A5007aa01, levels = levels_general, ordered = TRUE)),
+         A2004ai01 = as.numeric(factor(A2004ai01, levels = levels_general, ordered = TRUE)),
+        A2004al01 = as.numeric(factor(A2004al01, levels = levels_general, ordered = TRUE)))
+
+# Lineares Modell anpassen
+lm_modell <- lm(A2004ai01 ~ A5006aa01 + A5007aa01 + A2004al01 , data = lm_daten)
+
+summary(lm_modell)
+
+```
+
+Der Koeffizient für A5006aa01 ist negativ, was darauf hinweist, dass eine häufigere Autonutzung (niedrigere numerische Werte nach Umkehrung der Levels) mit einer geringeren Zufriedenheit mit dem Parkplatzangebot verbunden ist. Der positive Koeffizient für A5007aa01 bedeutet, dass eine höhere Zufriedenheit mit der allgemeinen Situation des Autos mit einer höheren Zufriedenheit mit dem Parkplatzangebot verbunden ist. Ebenfalls, aber weniger stark, geht eine höhere Zufriedenheit mit den Verkehrsberuhigungsmassnahmen mit dem Parkplatz-Angebot einher. Das Modell erklärt 33.8% der Varianz der Zufriedenheit mit dem Parkplatzangebot. Das Modell müsste im folgenden noch geprüft werden auf die Normalverteilung der Residuen, Homoskedastizität, Multikollinearität und Ausreisser. Zudem könnten weitere Variablen wie das Alter, Geschlecht, Einkommen oä ins Modell aufgenommen werden zur Überprüfung, ob damit die Modellqualität erhöht werden kann.
